@@ -6,11 +6,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 1. Nettoyage Système Agressif
+        # Libère l'espace sur la partition racine / qui est souvent saturée
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost"
           sudo apt-get autoremove -y && sudo apt-get clean
 
       - name: 2. Maximiser l'espace LVM (Partition 96 Go)
+        # Configure le runner pour utiliser les 96 Go détectés lors de ton test précédent
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 1024
@@ -19,9 +21,10 @@ jobs:
           overprovision-lvm: 'true'
 
       - name: 3. Installation de .NET 8
+        # Requis pour faire fonctionner DepotDownloader version 3.4.0
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x' # Requis pour DepotDownloader 3.4.0
+          dotnet-version: '8.0.x'
 
       - name: 4. Installation DepotDownloader
         run: |
@@ -29,22 +32,25 @@ jobs:
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      - name: 5. Téléchargement CS2 (Dépôt Principal ~33 Go)
-        # On télécharge les fichiers dans ton espace de 96 Go
+      - name: 5. Téléchargement Dépôt Principal CS2 (~33-44 Go)
+        # Télécharge le contenu principal (App 730, Depot 2347770)
+        # Nécessite STEAM_USER et STEAM_PASS dans les Secrets du repo
         run: |
           ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
 
       - name: 6. Compression Ninja et Upload GoFile
-        # --remove-files : supprime chaque fichier dès qu'il est lu pour ne pas saturer le disque
+        # --remove-files : efface chaque fichier du disque immédiatement après l'avoir lu
+        # Utilise l'endpoint automatique upload.gofile.io de la doc API
         run: |
-          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
-          tar -cv --remove-files -C ./CS2_Main . | curl -F "file=@-;filename=cs2_main_data.tar" "https://${SERVER}.gofile.io/uploadFile"
+          echo "Début de l'upload vers GoFile (cela peut prendre 20-40 min)..."
+          tar -cv --remove-files -C ./CS2_Main . | curl -F "file=@-;filename=cs2_main_data.tar" https://upload.gofile.io/uploadfile
 
       - name: 7. Téléchargement Binaires (~2 Go)
+        # Télécharge les fichiers exécutables Windows (Depot 2347771)
         run: |
-          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin
+          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin -validate
 
       - name: 8. Upload Binaires Final
+        # Upload séparé pour plus de sécurité en cas de coupure réseau
         run: |
-          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
-          tar -cv --remove-files -C ./CS2_Bin . | curl -F "file=@-;filename=cs2_binaries.tar" "https://${SERVER}.gofile.io/uploadFile"
+          tar -cv --remove-files -C ./CS2_Bin . | curl -F "file=@-;filename=cs2_binaries.tar" https://upload.gofile.io/uploadfile
