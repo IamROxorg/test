@@ -1,35 +1,45 @@
-name: CS2 Downloader Proxy
+name: Full CS2 Downloader
 on: 
-  workflow_dispatch: # Permet de lancer le téléchargement manuellement
+  workflow_dispatch: # Déclenchement manuel
 
 jobs:
-  download_and_upload:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Libérer de l'espace disque
+      - name: 1. Nettoyage et Maximisation de l'espace
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 512
-          remove-dotnet: 'false'
+          root-reserve-mb: 2048
+          temp-reserve-mb: 1024
+          remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          overprovision-lvm: 'true' # Crucial pour utiliser les 93 Go libres
 
-      - name: Installer DepotDownloader
+      - name: 2. Installation de .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x' # Requis pour DepotDownloader 3.4.0
+
+      - name: 3. Installation de DepotDownloader
         run: |
           wget https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-linux-x64.zip
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      - name: Télécharger les fichiers CS2
-        # Note : On télécharge ici le dépôt des binaires (~2Go) pour tester
-        # Pour le jeu complet (33Go), GitHub risque de manquer d'espace
+      - name: 4. Téléchargement de CS2
+        # Télécharge l'App ID 730 (CS2) dans le dossier local
         run: |
-          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Files
-        
-      - name: Compresser les fichiers
-        run: tar -czf cs2_binaries.tar.gz ./CS2_Files
+          ./DepotDownloader -app 730 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ${{ github.workspace }}/CS2_Full -validate
 
-      - name: Upload sur GoFile
+      - name: 5. Compression des fichiers (TAR)
+        # Indispensable car CS2 contient des milliers de petits fichiers
+        run: tar -cvf cs2_full_files.tar -C ${{ github.workspace }}/CS2_Full .
+
+      - name: 6. Upload sur GoFile
+        # Utilise l'API GoFile pour générer un lien de téléchargement direct
         run: |
-          # Cette commande envoie le fichier sur GoFile et affiche le lien de téléchargement
-          curl -F "file=@cs2_binaries.tar.gz" https://store1.gofile.io/uploadFile
+          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
+          curl -F "file=@cs2_full_files.tar" "https://${SERVER}.gofile.io/uploadFile"
