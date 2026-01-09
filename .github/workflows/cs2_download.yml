@@ -1,0 +1,35 @@
+name: CS2 Downloader Proxy
+on: 
+  workflow_dispatch: # Permet de lancer le téléchargement manuellement
+
+jobs:
+  download_and_upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Libérer de l'espace disque
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          remove-dotnet: 'false'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Installer DepotDownloader
+        run: |
+          wget https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-linux-x64.zip
+          unzip DepotDownloader-linux-x64.zip
+          chmod +x DepotDownloader
+
+      - name: Télécharger les fichiers CS2
+        # Note : On télécharge ici le dépôt des binaires (~2Go) pour tester
+        # Pour le jeu complet (33Go), GitHub risque de manquer d'espace
+        run: |
+          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Files
+        
+      - name: Compresser les fichiers
+        run: tar -czf cs2_binaries.tar.gz ./CS2_Files
+
+      - name: Upload sur GoFile
+        run: |
+          # Cette commande envoie le fichier sur GoFile et affiche le lien de téléchargement
+          curl -F "file=@cs2_binaries.tar.gz" https://store1.gofile.io/uploadFile
