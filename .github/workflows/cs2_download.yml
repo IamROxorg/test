@@ -1,16 +1,11 @@
-name: CS2 AUTO-CLEAN DOWNLOAD
+name: CS2 SIMPLE UPLOAD
 on: workflow_dispatch
 
 jobs:
   download_and_upload:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Nettoyage Système
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost"
-          sudo apt-get autoremove -y && sudo apt-get clean
-
-      - name: 2. Maximiser l'espace (96 Go)
+      - name: 1. Nettoyage et Maximisation (96 Go)
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 1024
@@ -18,51 +13,45 @@ jobs:
           remove-android: 'true'
           overprovision-lvm: 'true'
 
-      - name: 3. Setup .NET 8
+      - name: 2. Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: 4. Installation DepotDownloader
+      - name: 3. Installation DepotDownloader
         run: |
           wget https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-linux-x64.zip
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      # --- PARTIE 1 : MAIN DEPOT (33 Go) ---
+      # --- PARTIE 1 : MAIN DEPOT ---
 
-      - name: 5. Téléchargement CS2 (Main)
+      - name: 4. Téléchargement CS2 (Main)
         run: |
           ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
 
-      - name: 6. Zip & Delete (Main)
-        # --remove-files : Supprime les fichiers sources DÈS qu'ils sont ajoutés à l'archive
-        # On crée un fichier cs2_main.tar stable sur le disque
+      - name: 5. Création du fichier TAR
+        # On crée le fichier car curl a besoin d'un fichier physique
+        # --remove-files : Supprime le dossier original pour ne pas saturer le disque
         run: |
-          echo "Compression et suppression des sources..."
           tar -cvf cs2_main.tar --remove-files -C ./CS2_Main .
 
-      - name: 7. Upload GoFile (Main)
-        # Upload du fichier solide (pas de pipe, donc pas de crash curl)
+      - name: 6. Upload Simple (Ta méthode)
+        # Exactement la commande de la doc
         run: |
-          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
-          echo "Upload vers $SERVER..."
-          curl -F "file=@cs2_main.tar" "https://$SERVER.gofile.io/uploadFile"
-          
-          # On supprime l'archive une fois envoyée pour faire de la place pour la suite
-          rm -f cs2_main.tar
+          curl -X POST https://api.gofile.io/uploadFile -F "file=@cs2_main.tar"
 
-      # --- PARTIE 2 : BINARIES (2 Go) ---
+      # --- PARTIE 2 : BINARIES ---
 
-      - name: 8. Téléchargement CS2 (Binaries)
+      - name: 7. Téléchargement Binaires
         run: |
+          rm -f cs2_main.tar # On nettoie le précédent
           ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin -validate
 
-      - name: 9. Zip & Delete (Binaries)
+      - name: 8. Création TAR Binaires
         run: |
           tar -cvf cs2_bin.tar --remove-files -C ./CS2_Bin .
 
-      - name: 10. Upload GoFile (Binaries)
+      - name: 9. Upload Simple Binaires
         run: |
-          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
-          curl -F "file=@cs2_bin.tar" "https://$SERVER.gofile.io/uploadFile"
+          curl -X POST https://api.gofile.io/uploadFile -F "file=@cs2_bin.tar"
