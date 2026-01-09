@@ -1,4 +1,4 @@
-name: CS2 SPLIT UPLOAD (SAFE MODE)
+name: CS2 SPLIT FILTER (NO SPACE ERROR)
 on: workflow_dispatch
 
 jobs:
@@ -24,37 +24,34 @@ jobs:
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      - name: 4. Téléchargement CS2 (Main + Binaries ensemble)
-        # On télécharge tout d'un coup, on a la place (96Go > 35Go)
+      - name: 4. Téléchargement CS2 (TOUT)
+        # On télécharge tout d'un coup (Main + Binaries)
         run: |
           ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Full -validate
           ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Full -validate
 
-      - name: 5. Compression, Découpage et Upload (Boucle)
-        # C'est la magie : On tar, on pipe vers split qui crée des fichiers de 2Go
-        # Ensuite on boucle pour uploader chaque morceau
+      - name: 5. Streaming Intelligent (Split + Upload + Delete)
+        # C'est ici que tout se joue.
+        # 1. 'tar' envoie les données dans le tuyau.
+        # 2. 'split' coupe en morceaux de 2 Go (2000M).
+        # 3. '--filter' exécute le script DANS les guillemets pour CHAQUE morceau séparément.
         run: |
-          echo "Création des archives découpées (2Go chacune)..."
-          # On crée des fichiers cs2_part_aa, cs2_part_ab, etc.
-          tar -c -C ./CS2_Full . | split -b 2000M - cs2_part_
-
-          echo "Suppression des fichiers sources pour faire de la place..."
-          rm -rf ./CS2_Full
-
-          echo "Début de l'upload séquentiel des parties..."
+          echo "Démarrage du découpage et upload à la volée..."
           
-          # On boucle sur chaque fichier créé par split
-          for file in cs2_part_*; do
-            echo "---------------------------------------------------"
-            echo "Upload de $file ..."
-            # On envoie le fichier
-            RESPONSE=$(curl -X POST https://api.gofile.io/uploadFile -F "file=@$file")
+          # La variable $FILE est créée automatiquement par split pour chaque morceau (xaa, xab, etc.)
+          tar -c -C ./CS2_Full . | split -b 2000M --filter='
+            # A. On écrit le morceau de 2Go sur le disque
+            cat > $FILE
             
-            # On affiche le lien clairement
-            echo "RÉPONSE GOFILE POUR $file :"
-            echo "$RESPONSE"
+            echo "--------------------------------------"
+            echo "Morceau $FILE créé (2Go). Upload en cours..."
             
-            # On supprime le fichier uploadé pour libérer l'espace disque
-            rm -f "$file"
-          done
-          
+            # B. On l upload vers GoFile (API directe)
+            curl -X POST https://api.gofile.io/uploadFile -F "file=@$FILE"
+            
+            echo ""
+            echo "Upload fini pour $FILE. Suppression immédiate."
+            
+            # C. ON SUPPRIME LE FICHIER IMMÉDIATEMENT
+            rm -f $FILE
+          ' - cs2_part_
