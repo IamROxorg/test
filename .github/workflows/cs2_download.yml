@@ -1,41 +1,51 @@
-name: CS2 Final Downloader (No Disk Error)
-on: 
-  workflow_dispatch:
+name: CS2 GoFile Ninja Downloader
+on: workflow_dispatch
 
 jobs:
-  download_cs2:
+  download_and_upload:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Nettoyage agressif de la racine (Partition /)
+      - name: 1. Nettoyage Système Agressif
+        # On libère l'espace sur /dev/root qui est plein à 100% chez toi
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost"
+          sudo apt-get autoremove -y && sudo apt-get clean
+
+      - name: 2. Maximiser l'espace LVM (Partition 93 Go)
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 2048
-          temp-reserve-mb: 1024
+          root-reserve-mb: 1024
           remove-dotnet: 'true'
           remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-          overprovision-lvm: 'true' # Utilise les 93 Go de ta partition LVM
+          overprovision-lvm: 'true' # Utilise tes 93 Go de libre
 
-      - name: 2. Setup .NET 8 (Requis pour v3.4.0)
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: 3. Installation DepotDownloader
+      - name: 3. Setup .NET 8 & DepotDownloader
         run: |
+          uses: actions/setup-dotnet@v4
+          with:
+            dotnet-version: '8.0.x'
           wget https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-linux-x64.zip
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      - name: 4. Téléchargement CS2 (App 730)
-        # On télécharge les 33.5 Go sur la partition LVM de 93 Go
+      - name: 4. Téléchargement CS2 (Dépôt Principal ~33 Go)
+        # On télécharge le gros morceau sur les 93 Go disponibles
         run: |
-          ./DepotDownloader -app 730 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ${{ github.workspace }}/CS2_Data -validate
+          ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
 
-      - name: 5. Compression et Upload Direct (Streaming)
-        # On ne crée PAS de fichier .tar sur le disque pour éviter de le remplir.
-        # Les données passent directement de 'tar' vers 'transfer.sh' via le tunnel '|'.
+      - name: 5. Compression Ninja et Upload GoFile
+        # D'après la doc API : https://upload.gofile.io/uploadfile
+        # Paramètre : file=@- (pour lire le flux de tar en direct)
+        # --remove-files : supprime chaque fichier dès qu'il est lu
         run: |
-          tar -cv -C ${{ github.workspace }}/CS2_Data . | curl --upload-file - https://transfer.sh/cs2_full_game.tar
+          echo "Début de l'upload vers GoFile..."
+          tar -cv --remove-files -C ./CS2_Main . | curl -F "file=@-;filename=cs2_main_data.tar" https://upload.gofile.io/uploadfile
+          # Le lien apparaîtra dans les logs ci-dessous
+
+      - name: 6. Téléchargement Binaires (~2 Go)
+        run: |
+          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin
+
+      - name: 7. Upload Binaires et Nettoyage
+        run: |
+          tar -cv --remove-files -C ./CS2_Bin . | curl -F "file=@-;filename=cs2_binaries.tar" https://upload.gofile.io/uploadfile
