@@ -1,4 +1,4 @@
-name: CS2 FINAL REPAIR
+name: CS2 AUTO-CLEAN DOWNLOAD
 on: workflow_dispatch
 
 jobs:
@@ -29,42 +29,40 @@ jobs:
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      - name: 5. Téléchargement CS2 (Dépôt Principal)
+      # --- PARTIE 1 : MAIN DEPOT (33 Go) ---
+
+      - name: 5. Téléchargement CS2 (Main)
         run: |
           ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
 
-      - name: 6. Upload GoFile (Méthode Anti-Redirect)
+      - name: 6. Zip & Delete (Main)
+        # --remove-files : Supprime les fichiers sources DÈS qu'ils sont ajoutés à l'archive
+        # On crée un fichier cs2_main.tar stable sur le disque
         run: |
-          # 1. On cherche le serveur avec 5 essais (pour éviter l'erreur jq)
-          SERVER=""
-          for i in {1..5}; do
-            echo "Tentative $i pour trouver un serveur GoFile..."
-            JSON=$(curl -s -f https://api.gofile.io/getServer || echo "")
-            SERVER=$(echo "$JSON" | jq -r '.data.server // empty')
-            
-            if [[ -n "$SERVER" && "$SERVER" != "null" ]]; then
-              echo "Serveur trouvé : $SERVER"
-              break
-            fi
-            sleep 3
-          done
+          echo "Compression et suppression des sources..."
+          tar -cvf cs2_main.tar --remove-files -C ./CS2_Main .
 
-          if [[ -z "$SERVER" ]]; then
-            echo "ERREUR CRITIQUE: Impossible de contacter l'API GoFile après 5 essais."
-            exit 1
-          fi
+      - name: 7. Upload GoFile (Main)
+        # Upload du fichier solide (pas de pipe, donc pas de crash curl)
+        run: |
+          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
+          echo "Upload vers $SERVER..."
+          curl -F "file=@cs2_main.tar" "https://$SERVER.gofile.io/uploadFile"
+          
+          # On supprime l'archive une fois envoyée pour faire de la place pour la suite
+          rm -f cs2_main.tar
 
-          # 2. On lance l'upload sur ce serveur PRÉCIS (Pas de redirection = Pas de crash du Pipe)
-          # On remet le filename car sans redirection, curl le gère très bien
-          echo "Démarrage du stream vers $SERVER..."
-          tar -cv --remove-files -C ./CS2_Main . | curl -X POST -F "file=@-;filename=cs2_main.tar" "https://$SERVER.gofile.io/uploadFile"
+      # --- PARTIE 2 : BINARIES (2 Go) ---
 
-      - name: 7. Téléchargement Binaires
+      - name: 8. Téléchargement CS2 (Binaries)
         run: |
           ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin -validate
 
-      - name: 8. Upload Binaires (Méthode Anti-Redirect)
+      - name: 9. Zip & Delete (Binaries)
         run: |
-          # On réutilise la même logique (le serveur peut changer)
+          tar -cvf cs2_bin.tar --remove-files -C ./CS2_Bin .
+
+      - name: 10. Upload GoFile (Binaries)
+        run: |
           SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
-          tar -cv --remove-files -C ./CS2_Bin . | curl -X POST -F "file=@-;filename=cs2_bin.tar" "https://$SERVER.gofile.io/uploadFile"
+          curl -F "file=@cs2_bin.tar" "https://$SERVER.gofile.io/uploadFile"
