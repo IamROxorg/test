@@ -1,4 +1,4 @@
-name: CS2 FINAL FIX
+name: CS2 FINAL REPAIR
 on: workflow_dispatch
 
 jobs:
@@ -33,17 +33,38 @@ jobs:
         run: |
           ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
 
-      - name: 6. Upload GoFile (Version Simplifiée)
-        # On a retiré ';filename=...' qui faisait planter curl.
-        # Le fichier s'uploadera sans nom, tu devras le renommer toi-même.
+      - name: 6. Upload GoFile (Méthode Anti-Redirect)
         run: |
-          echo "Upload en cours..."
-          tar -cv --remove-files -C ./CS2_Main . | curl -F "file=@-" https://upload.gofile.io/uploadfile
+          # 1. On cherche le serveur avec 5 essais (pour éviter l'erreur jq)
+          SERVER=""
+          for i in {1..5}; do
+            echo "Tentative $i pour trouver un serveur GoFile..."
+            JSON=$(curl -s -f https://api.gofile.io/getServer || echo "")
+            SERVER=$(echo "$JSON" | jq -r '.data.server // empty')
+            
+            if [[ -n "$SERVER" && "$SERVER" != "null" ]]; then
+              echo "Serveur trouvé : $SERVER"
+              break
+            fi
+            sleep 3
+          done
+
+          if [[ -z "$SERVER" ]]; then
+            echo "ERREUR CRITIQUE: Impossible de contacter l'API GoFile après 5 essais."
+            exit 1
+          fi
+
+          # 2. On lance l'upload sur ce serveur PRÉCIS (Pas de redirection = Pas de crash du Pipe)
+          # On remet le filename car sans redirection, curl le gère très bien
+          echo "Démarrage du stream vers $SERVER..."
+          tar -cv --remove-files -C ./CS2_Main . | curl -X POST -F "file=@-;filename=cs2_main.tar" "https://$SERVER.gofile.io/uploadFile"
 
       - name: 7. Téléchargement Binaires
         run: |
           ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin -validate
 
-      - name: 8. Upload Binaires (Version Simplifiée)
+      - name: 8. Upload Binaires (Méthode Anti-Redirect)
         run: |
-          tar -cv --remove-files -C ./CS2_Bin . | curl -F "file=@-" https://upload.gofile.io/uploadfile
+          # On réutilise la même logique (le serveur peut changer)
+          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
+          tar -cv --remove-files -C ./CS2_Bin . | curl -X POST -F "file=@-;filename=cs2_bin.tar" "https://$SERVER.gofile.io/uploadFile"
