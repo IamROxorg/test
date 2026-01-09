@@ -1,4 +1,4 @@
-name: CS2 SIMPLE UPLOAD
+name: CS2 SPLIT UPLOAD (SAFE MODE)
 on: workflow_dispatch
 
 jobs:
@@ -24,34 +24,37 @@ jobs:
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      # --- PARTIE 1 : MAIN DEPOT ---
-
-      - name: 4. Téléchargement CS2 (Main)
+      - name: 4. Téléchargement CS2 (Main + Binaries ensemble)
+        # On télécharge tout d'un coup, on a la place (96Go > 35Go)
         run: |
-          ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
+          ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Full -validate
+          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Full -validate
 
-      - name: 5. Création du fichier TAR
-        # On crée le fichier car curl a besoin d'un fichier physique
-        # --remove-files : Supprime le dossier original pour ne pas saturer le disque
+      - name: 5. Compression, Découpage et Upload (Boucle)
+        # C'est la magie : On tar, on pipe vers split qui crée des fichiers de 2Go
+        # Ensuite on boucle pour uploader chaque morceau
         run: |
-          tar -cvf cs2_main.tar --remove-files -C ./CS2_Main .
+          echo "Création des archives découpées (2Go chacune)..."
+          # On crée des fichiers cs2_part_aa, cs2_part_ab, etc.
+          tar -c -C ./CS2_Full . | split -b 2000M - cs2_part_
 
-      - name: 6. Upload Simple (Ta méthode)
-        # Exactement la commande de la doc
-        run: |
-          curl -X POST https://api.gofile.io/uploadFile -F "file=@cs2_main.tar"
+          echo "Suppression des fichiers sources pour faire de la place..."
+          rm -rf ./CS2_Full
 
-      # --- PARTIE 2 : BINARIES ---
-
-      - name: 7. Téléchargement Binaires
-        run: |
-          rm -f cs2_main.tar # On nettoie le précédent
-          ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin -validate
-
-      - name: 8. Création TAR Binaires
-        run: |
-          tar -cvf cs2_bin.tar --remove-files -C ./CS2_Bin .
-
-      - name: 9. Upload Simple Binaires
-        run: |
-          curl -X POST https://api.gofile.io/uploadFile -F "file=@cs2_bin.tar"
+          echo "Début de l'upload séquentiel des parties..."
+          
+          # On boucle sur chaque fichier créé par split
+          for file in cs2_part_*; do
+            echo "---------------------------------------------------"
+            echo "Upload de $file ..."
+            # On envoie le fichier
+            RESPONSE=$(curl -X POST https://api.gofile.io/uploadFile -F "file=@$file")
+            
+            # On affiche le lien clairement
+            echo "RÉPONSE GOFILE POUR $file :"
+            echo "$RESPONSE"
+            
+            # On supprime le fichier uploadé pour libérer l'espace disque
+            rm -f "$file"
+          done
+          
