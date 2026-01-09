@@ -1,18 +1,16 @@
-name: CS2 GoFile Ninja Downloader
+name: CS2 FINAL FIX
 on: workflow_dispatch
 
 jobs:
   download_and_upload:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Nettoyage Système Agressif
-        # Libère l'espace sur la partition racine / qui est souvent saturée
+      - name: 1. Nettoyage Système
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost"
           sudo apt-get autoremove -y && sudo apt-get clean
 
-      - name: 2. Maximiser l'espace LVM (Partition 96 Go)
-        # Configure le runner pour utiliser les 96 Go détectés lors de ton test précédent
+      - name: 2. Maximiser l'espace (96 Go)
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 1024
@@ -20,8 +18,7 @@ jobs:
           remove-android: 'true'
           overprovision-lvm: 'true'
 
-      - name: 3. Installation de .NET 8
-        # Requis pour faire fonctionner DepotDownloader version 3.4.0
+      - name: 3. Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -32,25 +29,21 @@ jobs:
           unzip DepotDownloader-linux-x64.zip
           chmod +x DepotDownloader
 
-      - name: 5. Téléchargement Dépôt Principal CS2 (~33-44 Go)
-        # Télécharge le contenu principal (App 730, Depot 2347770)
-        # Nécessite STEAM_USER et STEAM_PASS dans les Secrets du repo
+      - name: 5. Téléchargement CS2 (Dépôt Principal)
         run: |
           ./DepotDownloader -app 730 -depot 2347770 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Main -validate
 
-      - name: 6. Compression Ninja et Upload GoFile
-        # --remove-files : efface chaque fichier du disque immédiatement après l'avoir lu
-        # Utilise l'endpoint automatique upload.gofile.io de la doc API
+      - name: 6. Upload GoFile (Version Simplifiée)
+        # On a retiré ';filename=...' qui faisait planter curl.
+        # Le fichier s'uploadera sans nom, tu devras le renommer toi-même.
         run: |
-          echo "Début de l'upload vers GoFile (cela peut prendre 20-40 min)..."
-          tar -cv --remove-files -C ./CS2_Main . | curl -F "file=@-;filename=cs2_main_data.tar" https://upload.gofile.io/uploadfile
+          echo "Upload en cours..."
+          tar -cv --remove-files -C ./CS2_Main . | curl -F "file=@-" https://upload.gofile.io/uploadfile
 
-      - name: 7. Téléchargement Binaires (~2 Go)
-        # Télécharge les fichiers exécutables Windows (Depot 2347771)
+      - name: 7. Téléchargement Binaires
         run: |
           ./DepotDownloader -app 730 -depot 2347771 -user ${{ secrets.STEAM_USER }} -pass ${{ secrets.STEAM_PASS }} -dir ./CS2_Bin -validate
 
-      - name: 8. Upload Binaires Final
-        # Upload séparé pour plus de sécurité en cas de coupure réseau
+      - name: 8. Upload Binaires (Version Simplifiée)
         run: |
-          tar -cv --remove-files -C ./CS2_Bin . | curl -F "file=@-;filename=cs2_binaries.tar" https://upload.gofile.io/uploadfile
+          tar -cv --remove-files -C ./CS2_Bin . | curl -F "file=@-" https://upload.gofile.io/uploadfile
